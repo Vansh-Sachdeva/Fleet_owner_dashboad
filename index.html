@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<title>Fleet Aware</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link rel="stylesheet"
+href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<style>
+
+body{
+margin:0;
+font-family:Segoe UI;
+background:linear-gradient(135deg,#020617,#0f172a);
+color:white;
+}
+
+header{
+text-align:center;
+padding:25px;
+font-size:30px;
+font-weight:bold;
+background:#020617;
+border-bottom:1px solid #1e293b;
+}
+
+.grid{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+gap:20px;
+padding:30px;
+}
+
+.card{
+background:rgba(255,255,255,0.05);
+backdrop-filter:blur(10px);
+border-radius:12px;
+padding:20px;
+box-shadow:0 0 20px rgba(0,0,0,0.4);
+transition:0.3s;
+}
+
+.card:hover{
+transform:translateY(-5px);
+}
+
+.value{
+font-size:22px;
+margin-top:10px;
+font-weight:bold;
+}
+
+.score{
+font-size:50px;
+font-weight:bold;
+color:#38bdf8;
+}
+
+.alerts{
+background:#7f1d1d;
+margin:20px;
+padding:20px;
+border-radius:10px;
+font-size:18px;
+}
+
+#map{
+height:420px;
+margin:20px;
+border-radius:10px;
+}
+
+.controls{
+text-align:center;
+margin-bottom:40px;
+}
+
+button{
+background:#2563eb;
+border:none;
+padding:12px 25px;
+border-radius:8px;
+color:white;
+font-size:16px;
+cursor:pointer;
+margin:10px;
+}
+
+button:hover{
+background:#1d4ed8;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+  Fleet Owner's Smart dashboard
+</header>
+
+<div class="grid">
+
+<div class="card">
+<h3>Drowsiness</h3>
+<div id="drowsy" class="value">Loading...</div>
+</div>
+
+<div class="card">
+<h3>MQ3 Alcohol Sensor</h3>
+<div id="alcohol" class="value"></div>
+</div>
+
+<div class="card">
+<h3>MQ135 Gas Sensor</h3>
+<div id="gas" class="value"></div>
+</div>
+
+<div class="card">
+<h3>Driving Behaviour</h3>
+<div id="rash" class="value"></div>
+</div>
+
+<div class="card">
+<h3>Acceleration</h3>
+<div id="acc" class="value"></div>
+</div>
+
+<div class="card">
+<h3>Driver Safety Score</h3>
+<div id="score" class="score">100</div>
+</div>
+
+</div>
+
+<div class="alerts">
+⚠ Alerts: <span id="alertBox">No alerts</span>
+</div>
+
+<h2 style="text-align:center">Vehicle Live Location</h2>
+
+<div id="map"></div>
+
+<div class="controls">
+<button onclick="resetScore()">Reset Safety Score</button>
+<button onclick="showHistory()">Vehicle History</button>
+</div>
+
+<script>
+
+const API="https://script.google.com/macros/s/AKfycbz9t46CBO6kAIH0kHe-wqn75KA0TwkunEQS20k9ycmZQcnE5zCbW7xjU4Cdh1OJewU/exec?type=web_data";
+
+var baseScore=100;
+
+var map=L.map('map').setView([0,0],13);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+maxZoom:19
+}).addTo(map);
+
+var marker=L.marker([0,0]).addTo(map);
+
+function calculateScore(data){
+
+let score=baseScore;
+
+let ax=Math.abs(data.ax);
+let ay=Math.abs(data.ay);
+let az=Math.abs(data.az);
+
+/* DROWSINESS */
+
+if(data.drowsiness=="SLEEPING" || data.drowsiness=="DROWSY")
+score-=40;
+
+/* DRUNK DRIVER */
+
+if(data.alcohol>450 && data.gas>250)
+score-=35;
+
+/* RASH DRIVING */
+
+if(ax>0.30 || ax<-0.40 || ay>0.40)
+score-=20;
+
+/* COLLISION */
+
+if(ax>0.75 || ay>0.75 || az>0.75)
+score-=50;
+
+if(score<0)
+score=0;
+
+return score;
+
+}
+
+function generateAlerts(data){
+
+let alerts=[];
+
+let ax=Math.abs(data.ax);
+let ay=Math.abs(data.ay);
+let az=Math.abs(data.az);
+
+/* DROWSINESS */
+
+if(data.drowsiness=="SLEEPING" || data.drowsiness=="DROWSY")
+alerts.push("Driver Drowsy");
+
+/* DRUNK */
+
+if(data.alcohol>450 && data.gas>250)
+alerts.push("🚨 Drunk Driving Detected");
+
+/* RAPID ACCELERATION */
+
+if(data.ax>0.30)
+alerts.push("Sudden Acceleration");
+
+/* HARSH BRAKING */
+
+if(data.ax<-0.40)
+alerts.push("Harsh Braking");
+
+/* HARD TURN */
+
+if(Math.abs(data.ay)>0.40)
+alerts.push("Hard Cornering");
+
+/* COLLISION */
+
+if(ax>0.75 || ay>0.75 || az>0.75)
+alerts.push("⚠ Possible Collision");
+
+/* NORMAL */
+
+if(alerts.length==0)
+return "No alerts";
+
+return alerts.join(" | ");
+
+}
+
+async function loadData(){
+
+let res=await fetch(API);
+
+let data=await res.json();
+
+/* UI VALUES */
+
+document.getElementById("drowsy").innerText=data.drowsiness;
+
+document.getElementById("alcohol").innerText=data.alcohol;
+
+document.getElementById("gas").innerText=data.gas;
+
+document.getElementById("rash").innerText=data.rash;
+
+document.getElementById("acc").innerText=
+"Ax:"+data.ax+" Ay:"+data.ay+" Az:"+data.az;
+
+/* SAFETY SCORE */
+
+let score=calculateScore(data);
+
+document.getElementById("score").innerText=score;
+
+/* ALERT PANEL */
+
+document.getElementById("alertBox").innerText=
+generateAlerts(data);
+
+/* GPS */
+
+marker.setLatLng([data.lat,data.lng]);
+
+map.setView([data.lat,data.lng],15);
+
+}
+
+function resetScore(){
+
+baseScore=100;
+
+document.getElementById("score").innerText=100;
+
+}
+
+function showHistory(){
+
+window.open("https://docs.google.com/spreadsheets/d/1YVuVl2RaI2aXZTW4te1KV-dWaZ31nqhCHKjc0auZbKo/edit?usp=sharing");
+
+}
+
+setInterval(loadData,3000);
+
+loadData();
+
+</script>
+
+</body>
+
+</html>
